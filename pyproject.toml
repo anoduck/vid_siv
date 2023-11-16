@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "vid-siv"
+version = "0.1.0"
+description = "Filters and removes unwanted or corrupt videos based on specs."
+authors = ["anoduck <11767-anoduck@users.noreply.gitgud.io>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+simple-parsing = "^0.1.4"
+trio = "^0.23.1"
+guessit = "^3.7.1"
+ffmpeg-python = "^0.2.0"
+alive-progress = "^3.1.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
