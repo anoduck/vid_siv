@@ -35,10 +35,13 @@ to customize as possible.
 | :-------- | :-----: | :-------------                  |
 | directory | `--dir` | Directory to search in          |
 | quality   | `--qty` | Desired quality (width)         |
-| duration  |  --dur  | Enable and set minimum duration |
+| duration  | `--dur` | Enable and set minimum duration |
 | remove    | `--rm`  | Enable file removal             |
-| no zero   |  --noz  | Disable zero sum deletion       |
-| minimum   |  --min  | file size for zero sum          |
-| log level |  --lev  | Set log level to DEBUG or INFO  |
-| log file  |  --log  | Log file path                   |
+| no zero   | `--noz` | Disable zero sum deletion       |
+| minimum   | `--min` | file size for zero sum          |
+| log level | `--lev` | Set log level to DEBUG or INFO  |
+| log file  | `--log` | Log file path                   |
 
+
+### License
+MIT
