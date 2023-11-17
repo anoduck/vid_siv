@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
+from os.path import isfile
 from simple_parsing import parse, choice
 from alive_progress import alive_bar
 import ffmpeg
@@ -45,19 +46,15 @@ def get_log(Options):
     return log
 
 
-def get_flist(Options, log):
+async def get_flist(Options, log):
     filelst = []
     flst = []
     log.info('Generating file list recursively')
     dir_path = os.path.abspath(Options.dir)
     log.debug('Directory path: {}'.format(dir_path))
-    for os_obj in os.walk(dir_path):
-        files = os_obj[2]
-        for file in files:
-            rpath = os.path.join(os_obj[0], file)
-            apath = os.path.abspath(rpath)
-            if apath not in filelst:
-                filelst.append(apath)
+    for entry in trio.Path(dir_path).rglob('**/*'):
+        if await trio.Path(entry).is_file():
+            filelst.append(entry)
     log.info('Raw file list generated')
     log.info('Checking for mimetypes')
     for item in filelst:
@@ -76,7 +73,7 @@ async def main(Options):
     qty = Options.qty
     rdict = {'480': 480, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
-    flst = get_flist(Options, log)
+    flst = await get_flist(Options, log)
     total = len(flst)
     with alive_bar(total) as bar:
         for item in flst:

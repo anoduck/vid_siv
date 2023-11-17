@@ -14,12 +14,15 @@ Hewo!
 This rather simple script does the following:
 - It recursively traverses a directory looking for video files.
 - When it finds one, it makes sure it is an actual video file.
-- It then checks to see if the file has a size less than 512k
+- It then checks to see if the file has a size less than configured amount.
 - If the file does not meet the minimum required file size it removes it.
-- It then probes the file for the width of the video. The width is often used to designate whether a video is
-  HD or SD.
+- If it does, it then checks to see if the file meets the minimum duration requirement.
+- Like before, if the file fails, it is removed. If it succeeds, it moves on to the next filter.
+- Lastly, it probes the file for the width. The width is often used to designate quality.
 - If the video width does not meet the designated minimum amount, it deletes the file.
 - The script is used for removing low quality video files from your system.
+
+__Because, the nineties were not the best time for high def video.__
 
 ## Install
 
@@ -44,4 +47,4 @@ to customize as possible.
 
 
 ### License
-MIT
+https://anoduck.mit-license.org
