@@ -100,10 +100,13 @@ async def get_flist(Options, sendproc, log):
     log.info('Generating file list recursively')
     dir_path = os.path.abspath(Options.dir)
     log.debug('Directory path: {}'.format(dir_path))
-    entries = await trio.Path(dir_path).rglob('**/*')
-    for entry in entries:
-        if await trio.Path(entry).is_file():
-            await sendflist.send(entry)
+    for obj_tup in os.walk(dir_path):
+        filelists = obj_tup[2]
+        async with sendflist:
+            async for name in filelists:
+                rpath = os.path.join(obj_tup[0], name)
+                apath = os.path.abspath(rpath)
+                await sendflist.send(apath)
     log.info('Raw file list generated')
     log.info('Checking for mimetypes')
     sendproc1 = sendproc
@@ -114,9 +117,9 @@ async def get_flist(Options, sendproc, log):
     recv3 = recflist.clone()
     log.debug('Starting trio Async')
     async with trio.open_nursery() as nsy:
-        nsy.start_soon(find_videos(recv=recv1, sendproc=sendproc1))
-        nsy.start_soon(find_videos(recv=recv2, sendproc=sendproc2))
-        nsy.start_soon(find_videos(recv=recv3, sendproc=sendproc3))
+        await nsy.start_soon(find_videos(recv=recv1, sendproc=sendproc1))
+        await nsy.start_soon(find_videos(recv=recv2, sendproc=sendproc2))
+        await nsy.start_soon(find_videos(recv=recv3, sendproc=sendproc3))
     log.info('File list filtered by mimetype.')
     log.info('The file list has been generated.')
 
@@ -131,15 +134,18 @@ async def main(Options):
     total = recvproc.qsize()
     with alive_bar(total) as bar:
         async with trio.open_nursery as nsy0:
-            nsy0.start_soon(proc_vids(recvproc=recvproc, log=log,
-                                      tres=tres, Options=Options, bar=bar))
-            nsy0.start_soon(proc_vids(recvproc=recvproc.clone(), log=log,
-                                      tres=tres, Options=Options, bar=bar))
-            nsy0.start_soon(proc_vids(recvproc=recvproc.clone(), log=log,
-                                      tres=tres, Options=Options, bar=bar))
-            nsy0.start_soon(proc_vids(recvproc=recvproc.clone(), log=log,
-                                      tres=tres, Options=Options, bar=bar))
-    await trio.sleep(0)
+            await nsy0.start_soon(proc_vids(recvproc=recvproc, log=log,
+                                            tres=tres, Options=Options,
+                                            bar=bar))
+            await nsy0.start_soon(proc_vids(recvproc=recvproc.clone(), log=log,
+                                            tres=tres, Options=Options,
+                                            bar=bar))
+            await nsy0.start_soon(proc_vids(recvproc=recvproc.clone(), log=log,
+                                            tres=tres, Options=Options,
+                                            bar=bar))
+            await nsy0.start_soon(proc_vids(recvproc=recvproc.clone(), log=log,
+                                            tres=tres, Options=Options,
+                                            bar=bar))
     log.info('{} files processed'.format(total))
     log.info('Process complete.')
     print('Done!')
