@@ -103,13 +103,16 @@ async def proc_vids(recvproc, tres, Options, bar, task_status=trio.TASK_STATUS_I
 async def send_vids(sendproc, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     log.info('Started Sender...')
-    fvids = vidcon.get(vidlist)
-    log.info('Fvids Value: {}'.format(fvids))
+    count = 0
+    nvids = vidcon.get(default=vidlist)
+    log.info('Fvids Value: {}'.format(nvids))
     log.info('Acquired ContextVar')
     async with sendproc:
-        for item in fvids:
+        for item in nvids:
             await sendproc.send(item)
+            count += 1
             log.debug('Sent item: {}'.format(item))
+            log.debug('Sent count: {}'.format(count))
 
 
 async def find_videos(recvchan, log, task_status=trio.TASK_STATUS_IGNORED):
@@ -126,10 +129,8 @@ async def find_videos(recvchan, log, task_status=trio.TASK_STATUS_IGNORED):
             if mime == 'video':
                 eset.add(item)
             log.debug('return item is: {}'.format(item))
-    fvids = vidcon.get(vidlist)
-    nvids = fvids | eset
-    log.debug('Nvids Value: {}'.format(nvids))
-    vidobj.set(nvids)
+    log.debug('Eset Value: {}'.format(eset))
+    return eset
 
 
 async def walk(dir_path, sendchan, task_status=trio.TASK_STATUS_IGNORED):
@@ -158,13 +159,15 @@ async def get_flist(Options, log):
         async with sendlst, recvlist:
             await nsy.start(walk, dir_path, sendlst.clone())
             await nsy.start(walk, dir_path, sendlst.clone())
-            await nsy.start(find_videos, recvlist.clone(), log)
-            await nsy.start(find_videos, recvlist.clone(), log)
+            set1 = await nsy.start(find_videos, recvlist.clone(), log)
+            set2 = await nsy.start(find_videos, recvlist.clone(), log)
+    nsy_set = set1 | set2
+    vidcon.set(nsy_set)
     log.info('The file list has been generated.')
 
 
 async def get_bar():
-    nvids = vidobj.get(default=conlist)
+    nvids = vidcon.get(default=vidlist)
     total = len(nvids)
     log.debug('Nvids total: {}'.format(total))
     with alive_bar(total) as bar:
