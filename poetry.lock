@@ -12,6 +12,23 @@ files = [
 ]
 
 [[package]]
+name = "aioresult"
+version = "0.9"
+description = "Capture the result of a Trio or anyio task"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "aioresult-0.9-py3-none-any.whl", hash = "sha256:98ee813e4bc8045542d0cbe75ac895eeacf826c2695c3836d84b7efb4d024ec4"},
+    {file = "aioresult-0.9.tar.gz", hash = "sha256:59a5f8672c496e66f5ec2b60968cff999abaa4c1e04e7506434b24ed1bf546b4"},
+]
+
+[package.dependencies]
+sniffio = ">=1.0.0"
+
+[package.extras]
+docs = ["sphinxcontrib-trio"]
+
+[[package]]
 name = "alive-progress"
 version = "3.1.5"
 description = "A new kind of Progress Bar, with real-time throughput, ETA, and very cool animations!"
@@ -367,4 +384,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "4b3cfbec2caec6385c9caed4a69653b05a5930b2662f13b2558811b530647150"
+content-hash = "4860052a40b181316c3344619ed323119869531fe07edcc1f58617a925bd8fbd"
