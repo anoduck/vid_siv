@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from simple_parsing import parse, choice
-from alive_progress import alive_bar, alive_it
+from alive_progress import alive_it
 import ffmpeg
 import magic
 import trio
@@ -54,7 +54,7 @@ def get_alivelog():
     return alog
 
 
-async def proc_vids(recvproc, tres, Options, bar, task_status=trio.TASK_STATUS_IGNORED):
+async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     log.info('Started Video Processing.')
     async with recvproc:
@@ -67,8 +67,6 @@ async def proc_vids(recvproc, tres, Options, bar, task_status=trio.TASK_STATUS_I
                 log.info('Removing zero sum file: {}'.format(item))
                 os.remove(item)
                 log.info('Zero sum item {} removed.'.format(item))
-                bar()
-                # continue
             try:
                 ffdict = ffmpeg.probe(item)
                 ffstreams = ffdict.get('streams')
@@ -86,16 +84,12 @@ async def proc_vids(recvproc, tres, Options, bar, task_status=trio.TASK_STATUS_I
                         log.info('File {0} is below minimum {1} duration'.format(item, fdur))
                         os.remove(item)
                         log.info('Deleting file: {}'.format(item))
-                        bar()
-                        # continue
                 if fwidth >= 1:
                     if tres > fwidth:
                         log.info('Item {0} width {1} does not meet minimum of {2}'.format(item, fwidth, tres))
                         if Options.rm:
                             os.remove(item)
                             log.info('Deleting {}'.format(item))
-                            bar()
-                            # continue
             except ffmpeg.Error:
                 log.debug('Ffmpeg error: {}'.format(ffmpeg.Error(cmd=True,
                                                                  stdout=True,
@@ -117,7 +111,7 @@ async def juicer(sendproc, retset, task_status=trio.TASK_STATUS_IGNORED):
     log.info('There are {} items'.format(len(retset)))
     async with sendproc:
         async with trio.open_nursery() as nurse_send:
-            for i in retset:
+            for i in alive_it(retset):
                 nurse_send.start_soon(send_vids, sendproc.clone(), i)
 
 
@@ -163,7 +157,7 @@ async def get_flist(Options, log):
     log.debug('Directory path: {}'.format(dir_path))
     log.debug('Starting trio Async')
     async with trio.open_nursery() as nsy:
-        sendlst, recvlist = trio.open_memory_channel(0)
+        sendlst, recvlist = trio.open_memory_channel(4)
         async with sendlst, recvlist:
             nsy.start_soon(walk, dir_path, sendlst.clone())
             nsy.start_soon(walk, dir_path, sendlst.clone())
@@ -175,13 +169,6 @@ async def get_flist(Options, log):
     return retset
 
 
-async def get_bar(retset):
-    total = len(retset)
-    log.debug('Return set total: {}'.format(total))
-    with alive_bar(total) as bar:
-        return bar
-
-
 async def siv(Options):
     global log
     log = await get_log(Options)
@@ -189,14 +176,13 @@ async def siv(Options):
     rdict = {'480': 480, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
     retset = await get_flist(Options, log)
-    bar = await get_bar(retset)
     await trio.sleep(1)
     async with trio.open_nursery() as nursery:
         sendproc, recvproc = trio.open_memory_channel(4)
         async with sendproc, recvproc:
             nursery.start_soon(juicer, sendproc, retset)
             [nursery.start_soon(proc_vids, recvproc.clone(),
-                                tres, Options, bar) for _ in range(4)]
+                                tres, Options) for _ in range(4)]
     await trio.sleep(1)
     log.info('Process complete.')
     print('Done!', flush=False)
