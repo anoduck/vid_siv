@@ -36,7 +36,7 @@ This rather simple script does the following:
 
 __Because, the nineties were not the best time for high def video.__
 
-## Install
+### Install
 
 Use python poetry to install with `poetry install` or use pipenv to install with `pipenv install`. Which ever
 is your choice. Which would look like so:
@@ -49,7 +49,7 @@ or
 pipenv install
 ```
 
-## Options
+### Options
 
 Your options are very basic, so don't get too excited, but I did try to provide the user with as many options
 to customize as possible. 
@@ -78,6 +78,13 @@ poetry run python vidsiv.py --dir /dir/path --rm
 * As a "bonus" feature, you can use the `--dur` flag and remove files based on minimum size as well.
 * If you have files less than 512kb that you want to keep, you can either disable zero sum with `--noz` or change
 it with `--min 256`.
+
+#### Caveats
+
+__NOTE:__ If you recieve a `trio.ClosedResourceError` then this usually means you are trying to process a directory
+whose contents are two files or fewer. This error would then be expected, because the program is written to
+process more than two files asynchronously. In which case, the use of it would be out of scope of what it was 
+written for. If you find this is not the case, then please open an issue.  
 
 ### Thanks
 
