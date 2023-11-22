@@ -51,19 +51,39 @@ pipenv install
 
 ### Options
 
-Your options are very basic, so don't get too excited, but I did try to provide the user with as many options
-to customize as possible. 
+I did tried to provide the user with as many options to customize as possible.
 
-| Option     |   flag   | What it does                     |
-|:-----------|:--------:|:---------------------------------|
-| directory  | `--dir`  | Directory to search in           |
-| quality    | `--qty`  | Desired quality (width)          |
-| duration   | `--dur`  | Enable and set minimum duration  |
-| remove     |  `--rm`  | Enable file removal              |
-| no zero    | `--noz`  | Disable zero sum deletion        |
-| minimum    | `--min`  | file size for zero sum           |
-| log level  | `--lev`  | Set log level to DEBUG or INFO   |
-| log file   | `--log`  | Log file path                    |
+_In table form:_
+
+| Option     |   flag   | What it does                    |
+|:-----------|:--------:|:--------------------------------|
+| directory  | `--dir`  | Directory to search in          |
+| tasks      | `--tks`  | Number of receiving functions   |
+| quality    | `--qty`  | Desired quality (width)         |
+| duration   | `--dur`  | Enable and set minimum duration |
+| remove     |  `--rm`  | Enable file removal             |
+| no zero    | `--nozo` | Disable zero sum deletion       |
+| minimum    | `--min`  | file size for zero sum          |
+| log level  | `--lev`  | Set log level to DEBUG or INFO  |
+| log file   | `--log`  | Log file path                   |
+| rotate log | `--rot`  | Rotate log file when > 512      |
+
+_In raw class form:_
+
+```python
+class Options:
+    """Vidsiv helps you remove zero-sum, low quality, and short videos from folders recursively."""
+    dir: str = os.path.expanduser('~/Videos')  # Path of the directory you want sieved.
+    tks: int = 5  # NO TOUCH! Unless, you know what your doing! Controls number of channel receiving functions
+    qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Minimum desired quality (width)
+    dur: int = 60  # Enable and set Minimum allowed duration in secs.
+    rm: bool = False  # Enable deletion of low quality files.
+    zo: bool = True  # Disable removal of zerosum files.
+    min: int = 512  # Minimum file size in kilobytes, less than is considered zero-sum.
+    lev: str = choice('info', 'debug', default='debug')  # Set log level to either INFO or DEBUG
+    log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
+    rot: bool = True  # Disable auto rotate log file when > 512Kb
+```
 
 ### Usage
 
@@ -76,7 +96,7 @@ poetry run python vidsiv.py --dir /dir/path --rm
 * If no directory is specified on the command line, the script will default to using `/home/$USER/Videos`.
 * If the `--rm` flag is not used, the script will do nothing. This is so to prevent accidental deletion of files.
 * As a "bonus" feature, you can use the `--dur` flag and remove files based on minimum size as well.
-* If you have files less than 512kb that you want to keep, you can either disable zero sum with `--noz` or change
+* If you have files less than 512kb that you want to keep, you can either disable zero-sum with `--noz` or change
 it with `--min 256`.
 
 #### Caveats

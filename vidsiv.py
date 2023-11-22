@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from simple_parsing import parse, choice
-from alive_progress import alive_it
+from alive_progress import alive_it, alive_bar
 import ffmpeg
 import magic
 import trio
@@ -13,16 +13,17 @@ import logging
 
 @dataclass
 class Options:
-    """Vidsiv helps you remove zero sum, low quality, and short videos from folders recursively."""
+    """Vidsiv helps you remove zero-sum, low quality, and short videos from folders recursively."""
     dir: str = os.path.expanduser('~/Videos')  # Path of the directory you want sieved.
+    tks: int = 2  # NO TOUCH! Unless, you know what your doing! Controls number of channel receiving functions
     qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Minimum desired quality (width)
     dur: int = 60  # Enable and set Minimum allowed duration in secs.
     rm: bool = False  # Enable deletion of low quality files.
-    noz: bool = False  # Disable removal of zerosum files.
+    zo: bool = True  # Disable removal of zerosum files.
     min: int = 512  # Minimum file size in kilobytes, less than is considered zero sum.
     lev: str = choice('info', 'debug', default='debug')  # Set log level to either INFO or DEBUG
     log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
-    noro: bool = False  # Disable auto rotate log file when > 512Kb
+    rot: bool = True  # Disable auto rotate log file when > 512Kb
 
 
 Options = parse(Options, dest="Options")
@@ -36,7 +37,7 @@ async def rotate_file(logfile):
 
 
 async def get_log(Options):
-    if not Options.noro:
+    if Options.rot:
         await rotate_file(Options.log)
     log = logging.getLogger(__name__)
     if log.hasHandlers():
@@ -56,6 +57,7 @@ async def get_log(Options):
 
 async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
+    res_ret = []
     log.info('Started Video Processing.')
     async with recvproc:
         async for item in recvproc:
@@ -63,11 +65,14 @@ async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORE
             log.debug('Proc_vids function item is type: {}'.format(type(item)))
             fsize = os.path.getsize(item)
             min_size = Options.min * 1024
-            if min_size > fsize and not Options.noz:
+            if min_size > fsize and Options.zo:
                 log.info('Removing zero sum file: {}'.format(item))
-                os.remove(item)
-                log.info('Zero sum item {} removed.'.format(item))
-                await trio.sleep(0.1)
+                if Options.rm:
+                    os.remove(item)
+                    log.info('Zero sum item {} removed.'.format(item))
+                    await trio.sleep(0.1)
+                else:
+                    res_ret.append(item)
             try:
                 ffdict = ffmpeg.probe(item)
                 ffstreams = ffdict.get('streams')
@@ -83,9 +88,12 @@ async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORE
                     flopt = float(Options.dur)
                     if flopt > fdur:
                         log.info('File {0} is below minimum {1} duration'.format(item, fdur))
-                        os.remove(item)
-                        log.info('Deleting file: {}'.format(item))
-                        await trio.sleep(0.1)
+                        if Options.rm:
+                            os.remove(item)
+                            log.info('Deleting file: {}'.format(item))
+                            await trio.sleep(0.1)
+                        else:
+                            res_ret.append(item)
                 if fwidth >= 1:
                     if tres > fwidth:
                         log.info('Item {0} width {1} does not meet minimum of {2}'.format(item, fwidth, tres))
@@ -93,6 +101,8 @@ async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORE
                             os.remove(item)
                             log.info('Deleting {}'.format(item))
                             await trio.sleep(0.1)
+                        else:
+                            res_ret.append(item)
             except ffmpeg.Error:
                 log.debug('Ffmpeg error: {}'.format(ffmpeg.Error(cmd=True,
                                                                  stdout=True,
@@ -120,37 +130,75 @@ async def juicer(sendproc, retset, task_status=trio.TASK_STATUS_IGNORED):
 
 async def find_videos(recvchan, log, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
-    eset = set()
+    eset = list()
     async with recvchan:
         async for item in recvchan:
-            mmag = magic.Magic(mime=True)
-            mt = mmag.from_file(item)
-            tsplit = mt.split('/')
-            mime = tsplit[0]
-            log.debug('MT Type: {}'.format(str(type(mime))))
-            log.debug('MT Value: {}'.format(mime))
-            if mime == 'video':
-                eset.add(item)
-            log.debug('return item is: {}'.format(item))
+            if await trio.Path(item).is_file():
+                magik = magic.Magic(mime=True)
+                try:
+                    mt = magik.from_file(item)
+                    mt_split = mt.split('/')
+                    mime = mt_split[0]
+                    log.debug('MT Type: {}'.format(str(type(mime))))
+                    log.debug('MT Value: {}'.format(mime))
+                    if mime == 'video':
+                        eset.append(item)
+                    log.debug('return item is: {}'.format(item))
+                except magic.MagicException:
+                    log.debug('Magic Exception: {}'.format(item))
+                    pass
     log.debug('Eset Value: {}'.format(eset))
     log.debug('Eset type: {}'.format(type(eset)))
     return eset
 
 
-async def walk(dir_path, sendchan, task_status=trio.TASK_STATUS_IGNORED):
+async def send_path(sendchan, tg_path, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
-    count = 0
-    log.debug('Walk dir path: {}'.format(dir_path))
     async with sendchan:
-        for obj_tup in os.walk(dir_path):
-            filelists = obj_tup[2]
-            for name in alive_it(filelists, finalize=lambda bar: bar.text('Processed Files!')):
-                rpath = os.path.join(obj_tup[0], name)
-                apath = os.path.abspath(rpath)
-                log.debug('Walk file path: {}'.format(apath))
-                await sendchan.send(apath)
-                count += 1
-                log.debug('Send count: {}'.format(count))
+        await sendchan.send(tg_path)
+        await trio.sleep(0.1)
+
+
+async def file_juice(dir_path, sendchan, task_status=trio.TASK_STATUS_IGNORED):
+    task_status.started()
+    log.debug('Juicing the path')
+    async with sendchan:
+        async with trio.open_nursery() as juicery:
+            trio_glob = trio.Path(dir_path).rglob('**/*')
+            for file in await trio_glob:
+                tg_path = trio.Path(dir_path).joinpath(file)
+                if await trio.Path(tg_path).is_file():
+                    log.debug('{} is a file.'.format(tg_path))
+                    juicery.start_soon(send_path, sendchan.clone(), tg_path)
+
+
+async def get_fileset(Options, log):
+    log.info('Generating file list recursively')
+    eset = list()
+    dir_path = os.path.abspath(Options.dir)
+    for oswald in os.walk(dir_path):
+        files = oswald[2]
+        total = len(files)
+        with alive_bar(total) as bar:
+            for file in files:
+                file_path = os.path.join(dir_path, file)
+                if os.path.isfile(file_path):
+                    magik = magic.Magic(mime=True)
+                    try:
+                        mime_type = magik.from_file(file_path)
+                        type_split = mime_type.split('/')
+                        mime = type_split[0]
+                        log.debug('{0} is a {1} file'.format(file_path, mime))
+                        if mime == 'video':
+                            eset.append(file_path)
+                            bar()
+                        else:
+                            bar()
+                    except magic.MagicException:
+                        log.debug('Magic Exception: {}'.format(file_path))
+                        bar()
+                        pass
+    return eset
 
 
 async def get_flist(Options, log):
@@ -160,14 +208,13 @@ async def get_flist(Options, log):
     log.debug('Directory path: {}'.format(dir_path))
     log.debug('Starting trio Async')
     async with trio.open_nursery() as nsy:
-        sendlst, recvlist = trio.open_memory_channel(2)
+        sendlst, recvlist = trio.open_memory_channel(1)
         async with sendlst, recvlist:
-            nsy.start_soon(walk, dir_path, sendlst.clone())
-            res1 = ResultCapture.start_soon(nsy, find_videos, recvlist.clone(), log)
-            res2 = ResultCapture.start_soon(nsy, find_videos, recvlist.clone(), log)
-            res3 = ResultCapture.start_soon(nsy, find_videos, recvlist.clone(), log)
-    result_set = res1.result().union(res2.result())
-    retset = res3.result().union(result_set)
+            nsy.start_soon(file_juice, dir_path, sendlst.clone())
+            res = [ResultCapture.start_soon(nsy, find_videos,
+                                            recvlist.clone(),
+                                            log) for _ in range(Options.tks)]
+    retset = [r.result() for r in res]
     log.debug('Nursery return type: {}'.format(type(retset)))
     log.info('The file list has been generated.')
     return retset
@@ -179,15 +226,28 @@ async def siv(Options):
     qty = Options.qty
     rdict = {'480': 480, '540': 540, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
-    retset = await get_flist(Options, log)
+    #retset = await get_flist(Options, log)
+    retset = await get_fileset(Options, log)
     await trio.sleep(0.1)
     async with trio.open_nursery() as nursery:
-        sendproc, recvproc = trio.open_memory_channel(0)
+        sendproc, recvproc = trio.open_memory_channel(1)
         async with sendproc, recvproc:
             nursery.start_soon(juicer, sendproc, retset)
-            [nursery.start_soon(proc_vids, recvproc.clone(),
-                                tres, Options) for _ in range(4)]
+            pres = [nursery.start_soon(proc_vids, recvproc.clone(),
+                                       tres, Options) for _ in range(Options.tks)]
+            if pres:
+                res = []
+                for r in pres:
+                    res.extend(r)
     await trio.sleep(0.1)
+    if not Options.rm:
+        file_path = os.path.abspath('results.txt')
+        with open(file_path, mode='w', encoding='utf-8') as writ:
+            for item in res:
+                writ.write(item)
+                writ.write('\n')
+            writ.close()
+            log.info('Results written to file: {}'.format(file_path))
     log.info('Process complete.')
     print('Done!', flush=False)
 
