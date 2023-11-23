@@ -151,6 +151,8 @@ async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
                     log.debug('Magic Exception: {}'.format(item))
                     bar()
                     pass
+            else:
+                bar()
     log.debug('Eset Value: {}'.format(eset))
     log.debug('Eset type: {}'.format(type(eset)))
     return eset
