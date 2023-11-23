@@ -128,7 +128,7 @@ async def juicer(sendproc, retset, task_status=trio.TASK_STATUS_IGNORED):
                 nurse_send.start_soon(send_vids, sendproc.clone(), i)
 
 
-async def find_videos(recvchan, log, task_status=trio.TASK_STATUS_IGNORED):
+async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     eset = list()
     async with recvchan:
@@ -143,9 +143,13 @@ async def find_videos(recvchan, log, task_status=trio.TASK_STATUS_IGNORED):
                     log.debug('MT Value: {}'.format(mime))
                     if mime == 'video':
                         eset.append(item)
+                        bar()
+                    else:
+                        bar()
                     log.debug('return item is: {}'.format(item))
                 except magic.MagicException:
                     log.debug('Magic Exception: {}'.format(item))
+                    bar()
                     pass
     log.debug('Eset Value: {}'.format(eset))
     log.debug('Eset type: {}'.format(type(eset)))
@@ -207,14 +211,20 @@ async def get_flist(Options, log):
     dir_path = os.path.abspath(Options.dir)
     log.debug('Directory path: {}'.format(dir_path))
     log.debug('Starting trio Async')
-    async with trio.open_nursery() as nsy:
-        sendlst, recvlist = trio.open_memory_channel(1)
-        async with sendlst, recvlist:
-            nsy.start_soon(file_juice, dir_path, sendlst.clone())
-            res = [ResultCapture.start_soon(nsy, find_videos,
-                                            recvlist.clone(),
-                                            log) for _ in range(Options.tks)]
+    total_count = len(os.listdir(dir_path))
+    start_time = trio.current_time()
+    with alive_bar(total_count) as bar:
+        async with trio.open_nursery() as nsy:
+            sendlst, recvlist = trio.open_memory_channel(1)
+            async with sendlst, recvlist:
+                nsy.start_soon(file_juice, dir_path, sendlst.clone())
+                res = [ResultCapture.start_soon(nsy, find_videos,
+                                                recvlist.clone(),
+                                                bar, log) for _ in range(Options.tks)]
     retset = [r.result() for r in res]
+    end_time = trio.current_time()
+    total_time = end_time - start_time
+    log.info('Total runtime: {}'.format(total_time))
     log.debug('Nursery return type: {}'.format(type(retset)))
     log.info('The file list has been generated.')
     return retset
@@ -226,28 +236,30 @@ async def siv(Options):
     qty = Options.qty
     rdict = {'480': 480, '540': 540, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
-    #retset = await get_flist(Options, log)
-    retset = await get_fileset(Options, log)
-    await trio.sleep(0.1)
-    async with trio.open_nursery() as nursery:
-        sendproc, recvproc = trio.open_memory_channel(1)
-        async with sendproc, recvproc:
-            nursery.start_soon(juicer, sendproc, retset)
-            pres = [nursery.start_soon(proc_vids, recvproc.clone(),
-                                       tres, Options) for _ in range(Options.tks)]
-            if pres:
-                res = []
-                for r in pres:
-                    res.extend(r)
-    await trio.sleep(0.1)
-    if not Options.rm:
-        file_path = os.path.abspath('results.txt')
-        with open(file_path, mode='w', encoding='utf-8') as writ:
-            for item in res:
-                writ.write(item)
-                writ.write('\n')
-            writ.close()
-            log.info('Results written to file: {}'.format(file_path))
+    retset = await get_flist(Options, log)
+    # retset = await get_fileset(Options, log)
+    with alive_bar(len(retset)) as bar:
+        await trio.sleep(0.1)
+        async with trio.open_nursery() as nursery:
+            sendproc, recvproc = trio.open_memory_channel(1)
+            async with sendproc, recvproc:
+                nursery.start_soon(juicer, sendproc, retset)
+                pres = [nursery.start_soon(proc_vids, recvproc.clone(),
+                                           tres, Options) for _ in range(Options.tks)]
+                if pres:
+                    res = []
+                    for r in pres:
+                        res.extend(r)
+        await trio.sleep(0.1)
+        if not Options.rm:
+            file_path = os.path.abspath('results.txt')
+            with open(file_path, mode='w', encoding='utf-8') as writ:
+                for item in res:
+                    writ.write(item)
+                    writ.write('\n')
+                    bar()
+                writ.close()
+                log.info('Results written to file: {}'.format(file_path))
     log.info('Process complete.')
     print('Done!', flush=False)
 
