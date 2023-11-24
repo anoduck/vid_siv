@@ -15,15 +15,14 @@ import logging
 class Options:
     """Vidsiv helps you remove zero-sum, low quality, and short videos from folders recursively."""
     dir: str = os.path.expanduser('~/Videos')  # Path of the directory you want sieved.
-    tks: int = 2  # NO TOUCH! Unless, you know what your doing! Controls number of channel receiving functions
-    qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Minimum desired quality (width)
+    qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Choose minimum desired quality in width
     dur: int = 60  # Enable and set Minimum allowed duration in secs.
-    rm: bool = False  # Enable deletion of low quality files.
-    zo: bool = True  # Disable removal of zerosum files.
-    min: int = 512  # Minimum file size in kilobytes, less than is considered zero sum.
+    rm: bool = True  # Enable/Disable deletion of low quality files.
+    zo: bool = True  # Enable/Disable removal of zero-sum files.
+    min: int = 512  # Minimum file size in kilobytes, less than is considered zero-sum.
     lev: str = choice('info', 'debug', default='debug')  # Set log level to either INFO or DEBUG
     log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
-    rot: bool = True  # Disable auto rotate log file when > 512Kb
+    rot: bool = True  # Enable/Disable auto rotate log file when > 1MB
 
 
 Options = parse(Options, dest="Options")
@@ -32,7 +31,7 @@ Options = parse(Options, dest="Options")
 async def rotate_file(logfile):
     log_size = os.path.getsize(logfile)
     smart_size = log_size % 1024
-    if smart_size >= 512:
+    if smart_size >= 1024:
         os.remove(logfile)
 
 
@@ -55,7 +54,7 @@ async def get_log(Options):
     return log
 
 
-async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORED):
+async def proc_vids(recvproc, tres, Options, my_event, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     res_ret = []
     log.info('Started Video Processing.')
@@ -70,9 +69,11 @@ async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORE
                 if Options.rm:
                     os.remove(item)
                     log.info('Zero sum item {} removed.'.format(item))
+                    my_event.is_set()
                     await trio.sleep(0.1)
                 else:
                     res_ret.append(item)
+                    my_event.is_set()
             try:
                 ffdict = ffmpeg.probe(item)
                 ffstreams = ffdict.get('streams')
@@ -91,22 +92,27 @@ async def proc_vids(recvproc, tres, Options, task_status=trio.TASK_STATUS_IGNORE
                         if Options.rm:
                             os.remove(item)
                             log.info('Deleting file: {}'.format(item))
+                            my_event.is_set()
                             await trio.sleep(0.1)
                         else:
                             res_ret.append(item)
+                            my_event.is_set()
                 if fwidth >= 1:
                     if tres > fwidth:
                         log.info('Item {0} width {1} does not meet minimum of {2}'.format(item, fwidth, tres))
                         if Options.rm:
                             os.remove(item)
                             log.info('Deleting {}'.format(item))
+                            my_event.is_set()
                             await trio.sleep(0.1)
                         else:
                             res_ret.append(item)
+                            my_event.is_set()
             except ffmpeg.Error:
                 log.debug('Ffmpeg error: {}'.format(ffmpeg.Error(cmd=True,
                                                                  stdout=True,
                                                                  stderr=True)))
+                my_event.is_set()
                 continue
 
 
@@ -118,14 +124,21 @@ async def send_vids(sendproc, i, task_status=trio.TASK_STATUS_IGNORED):
         log.debug('Sent item: {}'.format(i))
 
 
-async def juicer(sendproc, retset, task_status=trio.TASK_STATUS_IGNORED):
+async def progress_generator(total, my_event):
+    with alive_bar(total) as bar:
+        for _ in range(total):
+            await my_event.wait()
+            if my_event.is_set():
+                bar()
+
+
+async def juicer(sendproc, return_set, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     log.info('Feeding list into Juicer')
-    log.info('There are {} items'.format(len(retset)))
+    log.info('There are {} items'.format(len(return_set)))
     async with sendproc:
         async with trio.open_nursery() as nurse_send:
-            for i in alive_it(retset, finalize=lambda bar: bar.text('Finished Processing Videos!')):
-                nurse_send.start_soon(send_vids, sendproc.clone(), i)
+            [nurse_send.start_soon(send_vids, sendproc.clone(), i) for i in return_set]
 
 
 async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
@@ -134,6 +147,7 @@ async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
     async with recvchan:
         async for item in recvchan:
             if await trio.Path(item).is_file():
+                item_path = trio.Path(item).as_posix()
                 magik = magic.Magic(mime=True)
                 try:
                     mt = magik.from_file(item)
@@ -142,13 +156,13 @@ async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
                     log.debug('MT Type: {}'.format(str(type(mime))))
                     log.debug('MT Value: {}'.format(mime))
                     if mime == 'video':
-                        eset.append(item)
+                        eset.append(item_path)
                         bar()
                     else:
                         bar()
-                    log.debug('return item is: {}'.format(item))
+                    log.debug('return item is: {}'.format(item_path))
                 except magic.MagicException:
-                    log.debug('Magic Exception: {}'.format(item))
+                    log.debug('Magic Exception: {}'.format(item_path))
                     bar()
                     pass
             else:
@@ -207,29 +221,41 @@ async def get_fileset(Options, log):
     return eset
 
 
+async def get_total(dir_path):
+    for glob_obj in os.walk(dir_path):
+        files = glob_obj[2]
+        total = len(files)
+        return total
+
+
 async def get_flist(Options, log):
     log.info('Generating file list recursively')
     log.info('Generating Current Context')
     dir_path = os.path.abspath(Options.dir)
     log.debug('Directory path: {}'.format(dir_path))
     log.debug('Starting trio Async')
-    total_count = len(os.listdir(dir_path))
+    total_count = await get_total(dir_path)
     start_time = trio.current_time()
     with alive_bar(total_count) as bar:
         async with trio.open_nursery() as nsy:
             sendlst, recvlist = trio.open_memory_channel(1)
             async with sendlst, recvlist:
                 nsy.start_soon(file_juice, dir_path, sendlst.clone())
-                res = [ResultCapture.start_soon(nsy, find_videos,
+                ret1 = ResultCapture.start_soon(nsy, find_videos,
                                                 recvlist.clone(),
-                                                bar, log) for _ in range(Options.tks)]
-    retset = [r.result() for r in res]
+                                                bar, log)
+                ret2 = ResultCapture.start_soon(nsy, find_videos,
+                                                recvlist.clone(),
+                                                bar, log)
+        result1: list = list(ret1.result())
+        result2: list = list(ret2.result())
+        result: list = list(result1.extend(result2))
     end_time = trio.current_time()
     total_time = end_time - start_time
     log.info('Total runtime: {}'.format(total_time))
-    log.debug('Nursery return type: {}'.format(type(retset)))
+    log.debug('Nursery return type: {}'.format(type(result)))
     log.info('The file list has been generated.')
-    return retset
+    return result
 
 
 async def siv(Options):
@@ -238,30 +264,35 @@ async def siv(Options):
     qty = Options.qty
     rdict = {'480': 480, '540': 540, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
-    retset = await get_flist(Options, log)
-    # retset = await get_fileset(Options, log)
-    with alive_bar(len(retset)) as bar:
-        await trio.sleep(0.1)
-        async with trio.open_nursery() as nursery:
-            sendproc, recvproc = trio.open_memory_channel(1)
-            async with sendproc, recvproc:
-                nursery.start_soon(juicer, sendproc, retset)
-                pres = [nursery.start_soon(proc_vids, recvproc.clone(),
-                                           tres, Options) for _ in range(Options.tks)]
-                if pres:
-                    res = []
-                    for r in pres:
-                        res.extend(r)
-        await trio.sleep(0.1)
-        if not Options.rm:
-            file_path = os.path.abspath('results.txt')
-            with open(file_path, mode='w', encoding='utf-8') as writ:
-                for item in res:
-                    writ.write(item)
-                    writ.write('\n')
-                    bar()
-                writ.close()
-                log.info('Results written to file: {}'.format(file_path))
+    return_set: list = await get_flist(Options, log)
+    if len(return_set) <= 4:
+        log.info('Returned file list is: {}'.format(len(return_set)))
+        log.info('Return list is too small for processing.')
+        print('Return list is too small for processing at {}'.format(len(return_set)))
+        exit(1)
+    # return_set = await get_fileset(Options, log)
+    await trio.sleep(0.1)
+    total = len(return_set)
+    my_event = trio.Event()
+    async with trio.open_nursery() as nursery:
+        sendproc, recvproc = trio.open_memory_channel(1)
+        async with sendproc, recvproc:
+            nursery.start_soon(progress_generator, total, my_event)
+            nursery.start_soon(juicer, sendproc, return_set)
+            fret1 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+                                             tres, Options, my_event)
+            fret2 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+                                             tres, Options, my_event)
+        results: list = fret1.result().extent(fret2.result())
+    await trio.sleep(0.1)
+    if not Options.rm:
+        file_path = os.path.abspath('results.txt')
+        with open(file_path, mode='w', encoding='utf-8') as writ:
+            for item in results:
+                writ.write(item)
+                writ.write('\n')
+            writ.close()
+            log.info('Results written to file: {}'.format(file_path))
     log.info('Process complete.')
     print('Done!', flush=False)
 
