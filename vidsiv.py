@@ -20,7 +20,7 @@ class Options:
     rm: bool = True  # Enable/Disable deletion of low quality files.
     zo: bool = True  # Enable/Disable removal of zero-sum files.
     min: int = 512  # Minimum file size in kilobytes, less than is considered zero-sum.
-    lev: str = choice('info', 'debug', default='debug')  # Set log level to either INFO or DEBUG
+    lev: str = choice('info', 'debug', default='info')  # Set log level to either INFO or DEBUG
     log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
     rot: bool = True  # Enable/Disable auto rotate log file when > 1MB
 
@@ -258,11 +258,12 @@ async def siv(return_set, tres, Options, log):
     lock_event = trio.Event()
     sendproc, recvproc = trio.open_memory_channel(1)
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(juicer, sendproc, return_set, log)
-        fret1 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
-                                         tres, Options, log)
-        fret2 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
-                                         tres, Options, log)
+        async with sendproc, recvproc:
+            nursery.start_soon(juicer, sendproc, return_set, log)
+            fret1 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+                                             tres, Options, log)
+            fret2 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+                                             tres, Options, log)
     await trio.sleep(0.1)
     if len(nursery.child_tasks) < 1:
         lock_event.set()
