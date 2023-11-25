@@ -58,7 +58,6 @@ _In table form:_
 | Option     |   flag   | What it does                    |
 |:-----------|:--------:|:--------------------------------|
 | directory  | `--dir`  | Directory to search in          |
-| tasks      | `--tks`  | Number of receiving functions   |
 | quality    | `--qty`  | Desired quality (width)         |
 | duration   | `--dur`  | Enable and set minimum duration |
 | remove     |  `--rm`  | Enable file removal             |
@@ -71,18 +70,16 @@ _In table form:_
 _In raw class form:_
 
 ```python
-class Options:
     """Vidsiv helps you remove zero-sum, low quality, and short videos from folders recursively."""
     dir: str = os.path.expanduser('~/Videos')  # Path of the directory you want sieved.
-    tks: int = 5  # NO TOUCH! Unless, you know what your doing! Controls number of channel receiving functions
-    qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Minimum desired quality (width)
+    qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Choose minimum desired quality in width
     dur: int = 60  # Enable and set Minimum allowed duration in secs.
-    rm: bool = False  # Enable deletion of low quality files.
-    zo: bool = True  # Disable removal of zerosum files.
+    rm: bool = True  # Enable/Disable deletion of low quality files.
+    zo: bool = True  # Enable/Disable removal of zero-sum files.
     min: int = 512  # Minimum file size in kilobytes, less than is considered zero-sum.
-    lev: str = choice('info', 'debug', default='debug')  # Set log level to either INFO or DEBUG
+    lev: str = choice('info', 'debug', default='info')  # Set log level to either INFO or DEBUG
     log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
-    rot: bool = True  # Disable auto rotate log file when > 512Kb
+    rot: bool = True  # Enable/Disable auto rotate log file when > 1MB
 ```
 
 ### Usage
@@ -101,12 +98,15 @@ it with `--min 256`.
 
 #### Caveats
 
-__NOTE:__ If you recieve a `trio.ClosedResourceError` then this usually means you are trying to process a directory
-whose contents are two files or fewer. This error would then be expected, because the program is written to
-process more than two files asynchronously. In which case, the use of it would be out of scope of what it was 
-written for. If you find this is not the case, then please open an issue.  
+During generation of the file list two approaches were tested, one using normal python file functions, and the 
+other using trio's asynchronous file functions. For small sets of files, trio's file handling functions outpaced
+normal file handling functions by a large margin, but with large sets of files the difference in processing time
+became much closer. Still trio's file handling functions was 0.2 secs faster than the standard file handling functions,
+averaging about 1.2 secs per file for over 4,000 files. We wish it was faster.
 
 ### Thanks
+
+A massively warm thanks goes to the trio gitter channel, who taught me a lot and helped me to troubleshoot this project.
 
 A special thanks goes out to [Arthur Tacca](https://github.com/arthur-tacca) for realizing and providing the
 missing feature to the trio asynchronous library, i.e. [aioresult](https://github.com/arthur-tacca/aioresult).  
