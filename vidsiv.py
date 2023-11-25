@@ -54,83 +54,83 @@ async def get_log(Options):
     return log
 
 
-async def proc_vids(recvproc, tres, Options, lock, log, task_status=trio.TASK_STATUS_IGNORED):
+async def proc_vids(recvproc, tres, Options, log, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     await trio.sleep(1)
     res_ret = []
     log.info('Started Video Processing.')
-    async with lock:
-        async with recvproc:
-            async for item in recvproc:
-                log.debug('Item is: {}'.format(item))
-                log.debug('Proc_vids function item is type: {}'.format(type(item)))
-                fsize = os.path.getsize(item)
-                min_size = Options.min * 1024
-                if min_size > fsize and Options.zo:
-                    log.info('Removing zero sum file: {}'.format(item))
-                    if Options.rm:
-                        os.remove(item)
-                        log.info('Zero sum item {} removed.'.format(item))
-                        await trio.sleep(0.1)
-                    else:
-                        res_ret.append(item)
-                try:
-                    ffdict = ffmpeg.probe(item)
-                    ffstreams = ffdict.get('streams')
-                    vidstream = ffstreams[0]
-                    fwidth = vidstream.get('width')
-                    log.debug('Video quality(width): {}'.format(fwidth))
-                    strdur = vidstream.get('duration')
+    async with recvproc:
+        async for item in recvproc:
+            log.debug('Item is: {}'.format(item))
+            log.debug('Proc_vids function item is type: {}'.format(type(item)))
+            fsize = os.path.getsize(item)
+            min_size = Options.min * 1024
+            if min_size > fsize and Options.zo:
+                log.info('Removing zero sum file: {}'.format(item))
+                if Options.rm:
+                    os.remove(item)
+                    log.info('Zero sum item {} removed.'.format(item))
+                    await trio.sleep(0.1)
+                else:
+                    res_ret.append(item)
+            try:
+                ffdict = ffmpeg.probe(item)
+                ffstreams = ffdict.get('streams')
+                vidstream = ffstreams[0]
+                fwidth = vidstream.get('width')
+                log.debug('Video quality(width): {}'.format(fwidth))
+                strdur = vidstream.get('duration')
+                if strdur is not None:
                     fdur = float(strdur)
-                    log.debug("fdur type: {}".format(type(fdur)))
-                    log.debug('Video duration in secs: {}'.format(fdur))
-                    if Options.dur:
-                        log.debug('Duration removal is enabled')
-                        flopt = float(Options.dur)
-                        if flopt > fdur:
-                            log.info('File {0} is below minimum {1} duration'.format(item, fdur))
+                else:
+                    fdur = 0
+                log.debug("fdur type: {}".format(type(fdur)))
+                log.debug('Video duration in secs: {}'.format(fdur))
+                if Options.dur:
+                    log.debug('Duration removal is enabled')
+                    flopt = float(Options.dur)
+                    if flopt > fdur:
+                        log.info('File {0} is below minimum {1} duration'.format(item, fdur))
+                        if Options.rm:
+                            os.remove(item)
+                            log.info('Deleting file: {}'.format(item))
+                            await trio.sleep(0.1)
+                        else:
+                            res_ret.append(item)
+                if type(fwidth) == 'NoneType':
+                    if tres > fwidth:
+                        log.info('Item {0} width {1} does not meet minimum of {2}'.format(item, fwidth, tres))
+                        if await trio.Path(item).exists():
                             if Options.rm:
                                 os.remove(item)
-                                log.info('Deleting file: {}'.format(item))
+                                log.info('Deleting {}'.format(item))
                                 await trio.sleep(0.1)
                             else:
                                 res_ret.append(item)
-                    if fwidth >= 1:
-                        if tres > fwidth:
-                            log.info('Item {0} width {1} does not meet minimum of {2}'.format(item, fwidth, tres))
-                            if await trio.Path(item).exists():
-                                if Options.rm:
-                                    os.remove(item)
-                                    log.info('Deleting {}'.format(item))
-                                    await trio.sleep(0.1)
-                                else:
-                                    res_ret.append(item)
-                except ffmpeg.Error:
-                    log.debug('Ffmpeg error: {}'.format(ffmpeg.Error(cmd=True,
-                                                                     stdout=True,
-                                                                     stderr=True)))
-                    continue
-            await trio.sleep(0.1)
-        return res_ret
+            except ffmpeg.Error:
+                log.debug('Ffmpeg error: {}'.format(ffmpeg.Error(cmd=True,
+                                                                 stdout=True,
+                                                                 stderr=True)))
+                continue
+        await trio.sleep(0.1)
+    return res_ret
 
 
-async def send_vids(sendproc, item, lock, log, task_status=trio.TASK_STATUS_IGNORED):
+async def send_vids(sendproc, item, log, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     log.info('Var(item) Value: {}'.format(item))
     async with sendproc:
         await sendproc.send(item)
         log.debug('Sent item: {}'.format(item))
-        await trio.sleep(0.1)
 
 
-async def juicer(sendproc, return_set, lock, log, task_status=trio.TASK_STATUS_IGNORED):
+async def juicer(sendproc, return_set, log, task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     log.info('Feeding list into Juicer')
     log.info('There are {} items'.format(len(return_set)))
-    async with sendproc:
-        async with trio.open_nursery() as nurse_send:
-            [nurse_send.start_soon(send_vids, sendproc.clone(), item, lock, log) for item in return_set]
-        await trio.sleep(1.5)
+    async with trio.open_nursery() as nurse_send:
+        async with sendproc:
+            [nurse_send.start_soon(send_vids, sendproc.clone(), item, log) for item in return_set]
 
 
 async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
@@ -161,6 +161,7 @@ async def find_videos(recvchan, bar, log, task_status=trio.TASK_STATUS_IGNORED):
                 bar()
     log.debug('Eset Value: {}'.format(eset))
     log.debug('Eset type: {}'.format(type(eset)))
+    recvchan.close()
     return eset
 
 
@@ -228,9 +229,9 @@ async def get_flist(Options, log):
     log.debug('Starting trio Async')
     total_count = await get_total(dir_path)
     start_time = trio.current_time()
+    sendlst, recvlist = trio.open_memory_channel(1)
     with alive_bar(total_count) as bar:
         async with trio.open_nursery() as nsy:
-            sendlst, recvlist = trio.open_memory_channel(1)
             async with sendlst, recvlist:
                 nsy.start_soon(file_juice, dir_path, sendlst.clone())
                 ret1 = ResultCapture.start_soon(nsy, find_videos,
@@ -239,9 +240,11 @@ async def get_flist(Options, log):
                 ret2 = ResultCapture.start_soon(nsy, find_videos,
                                                 recvlist.clone(),
                                                 bar, log)
-        result1 = ret1.result()
-        result2 = ret2.result()
-        result1.extend(result2)
+    sendlst.close()
+    recvlist.close()
+    result1 = ret1.result()
+    result2 = ret2.result()
+    result1.extend(result2)
     end_time = trio.current_time()
     total_time = end_time - start_time
     log.info('Total runtime: {}'.format(total_time))
@@ -253,15 +256,14 @@ async def get_flist(Options, log):
 async def siv(return_set, tres, Options, log):
     start_time = trio.current_time()
     lock_event = trio.Event()
-    lock = trio.Lock()
+    sendproc, recvproc = trio.open_memory_channel(1)
     async with trio.open_nursery() as nursery:
-        sendproc, recvproc = trio.open_memory_channel(1)
-        async with sendproc, recvproc:
-            nursery.start_soon(juicer, sendproc, return_set, lock, log)
-            fret1 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
-                                             tres, Options, lock, log)
-            fret2 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
-                                             tres, Options, lock, log)
+        nursery.start_soon(juicer, sendproc, return_set, log)
+        fret1 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+                                         tres, Options, log)
+        fret2 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+                                         tres, Options, log)
+    await trio.sleep(0.1)
     if len(nursery.child_tasks) < 1:
         lock_event.set()
     await lock_event.wait()
@@ -283,11 +285,6 @@ async def main(Options):
     rdict = {'480': 480, '540': 540, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
     return_set: list = await get_flist(Options, log)
-    if len(return_set) <= 4:
-        log.info('Returned file list is: {}'.format(len(return_set)))
-        log.info('Return list is too small for processing.')
-        print('Return list is too small for processing at {}'.format(len(return_set)))
-        exit(1)
     # return_set = await get_fileset(Options, log)
     await trio.sleep(0.1)
     print('Processing Videos... (This may take some time...)')
