@@ -273,7 +273,7 @@ async def siv(return_set, tres, Options, log):
     ret_f1.extend(ret_f2)
     end_time = trio.current_time()
     total_time = end_time - start_time
-    log.info('Total runtime: {}'.format(total_time))
+    log.info('Processing time: {}'.format(total_time))
     log.debug('Nursery return type: {}'.format(type(ret_f1)))
     log.info('The file list has been generated.')
     return ret_f1
@@ -282,6 +282,7 @@ async def siv(return_set, tres, Options, log):
 async def main(Options):
     global log
     log = await get_log(Options)
+    begin_time = trio.current_time()
     qty = Options.qty
     rdict = {'480': 480, '540': 540, '720': 720, '2k': 1920, '4k': 3840}
     tres = rdict.get(qty)
@@ -299,6 +300,9 @@ async def main(Options):
                 writ.write('\n')
             writ.close()
             log.info('Results written to file: {}'.format(file_path))
+    stop_time = trio.current_time()
+    overall_time = stop_time - begin_time
+    log.info('Overall run time: {}'.format(overall_time))
     log.info('Process complete.')
     print('Done!', flush=False)
 
