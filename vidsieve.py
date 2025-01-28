@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from simple_parsing import parse, choice
+from threading import Thread
 from alive_progress import alive_it, alive_bar
 import ffmpeg
 import magic
@@ -9,11 +10,13 @@ import trio
 from aioresult import ResultCapture
 import os
 import logging
+from logging.handlers import RotatingFileHandler
 
 
 @dataclass
 class Options:
     """Vidsiv helps you remove zero-sum, low quality, and short videos from folders recursively."""
+    action: str = choice("clean", "playlist", default="clean")  # Action to perform
     dir: str = os.path.expanduser('~/Videos')  # Path of the directory you want sieved.
     qty: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Choose minimum desired quality in width
     dur: int = 60  # Enable and set Minimum allowed duration in secs.
@@ -22,22 +25,12 @@ class Options:
     min: int = 512  # Minimum file size in kilobytes, less than is considered zero-sum.
     lev: str = choice('info', 'debug', default='info')  # Set log level to either INFO or DEBUG
     log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
-    rot: bool = True  # Enable/Disable auto rotate log file when > 1MB
 
 
 Options = parse(Options, dest="Options")
 
 
-async def rotate_file(logfile):
-    log_size = os.path.getsize(logfile)
-    smart_size = log_size % 1024
-    if smart_size >= 1024:
-        os.remove(logfile)
-
-
 async def get_log(Options):
-    if Options.rot:
-        await rotate_file(Options.log)
     log = logging.getLogger(__name__)
     if log.hasHandlers():
         log.handlers.clear()
@@ -45,7 +38,11 @@ async def get_log(Options):
         log.setLevel(logging.INFO)
     else:
         log.setLevel(logging.DEBUG)
-    handler = logging.FileHandler(Options.log, mode='a', encoding='utf-8')
+    handler = RotatingFileHandler(Options.log, mode='a',
+                                  maxBytes=1024,
+                                  backupCount=2,
+                                  encoding='utf-8',
+                                  delay=False)
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     log.addHandler(handler)
@@ -54,7 +51,73 @@ async def get_log(Options):
     return log
 
 
-async def proc_vids(recvproc, tres, Options, log, task_status=trio.TASK_STATUS_IGNORED):
+# Generate Playlist -----------------------------------------------------------
+async def gen_playlist(recvproc, tres, Options, log,
+                       task_status=trio.TASK_STATUS_IGNORED):
+    task_status.started()
+    await trio.sleep(1)
+    res_ret = []
+    log.info('Started Video Processing.')
+    async with recvproc:
+        async for item in recvproc:
+            log.debug('Item is: {}'.format(item))
+            log.debug('Proc_vids function item is type: {}'.format(type(item)))
+            fsize = os.path.getsize(item)
+            min_size = Options.min * 1024
+            if min_size > fsize and Options.zo:
+                log.info('Removing zero sum file: {}'.format(item))
+                if Options.rm:
+                    os.remove(item)
+                    log.info('Zero sum item {} removed.'.format(item))
+                    await trio.sleep(0.1)
+                else:
+                    res_ret.append(item)
+            try:
+                ffdict = ffmpeg.probe(item)
+                ffstreams = ffdict.get('streams')
+                vidstream = ffstreams[0]
+                fwidth = vidstream.get('width')
+                log.debug('Video quality(width): {}'.format(fwidth))
+                strdur = vidstream.get('duration')
+                if strdur is not None:
+                    fdur = float(strdur)
+                else:
+                    fdur = 0
+                log.debug("fdur type: {}".format(type(fdur)))
+                log.debug('Video duration in secs: {}'.format(fdur))
+                if Options.dur:
+                    log.debug('Duration removal is enabled')
+                    flopt = float(Options.dur)
+                    if flopt > fdur:
+                        log.info('File {0} is below minimum {1} duration'.format(item, fdur))
+                        if Options.rm:
+                            os.remove(item)
+                            log.info('Deleting file: {}'.format(item))
+                            await trio.sleep(0.1)
+                        else:
+                            res_ret.append(item)
+                if type(fwidth) == 'NoneType':
+                    if tres > fwidth:
+                        log.info('Item {0} width {1} does not meet minimum of {2}'.format(item, fwidth, tres))
+                        if await trio.Path(item).exists():
+                            if Options.rm:
+                                os.remove(item)
+                                log.info('Deleting {}'.format(item))
+                                await trio.sleep(0.1)
+                            else:
+                                res_ret.append(item)
+            except ffmpeg.Error:
+                log.debug('Ffmpeg error: {}'.format(ffmpeg.Error(cmd=True,
+                                                                 stdout=True,
+                                                                 stderr=True)))
+                continue
+        await trio.sleep(0.1)
+    return res_ret
+
+
+# Proc_Vids -------------------------------------------------------------------
+async def proc_vids(recvproc, tres, Options, log,
+                    task_status=trio.TASK_STATUS_IGNORED):
     task_status.started()
     await trio.sleep(1)
     res_ret = []
@@ -260,9 +323,11 @@ async def siv(return_set, tres, Options, log):
     async with trio.open_nursery() as nursery:
         async with sendproc, recvproc:
             nursery.start_soon(juicer, sendproc, return_set, log)
-            fret1 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+            fret1 = ResultCapture.start_soon(nursery, proc_vids,
+                                             recvproc.clone(),
                                              tres, Options, log)
-            fret2 = ResultCapture.start_soon(nursery, proc_vids, recvproc.clone(),
+            fret2 = ResultCapture.start_soon(nursery, proc_vids,
+                                             recvproc.clone(),
                                              tres, Options, log)
     await trio.sleep(0.1)
     if len(nursery.child_tasks) < 1:
@@ -288,10 +353,8 @@ async def main(Options):
     tres = rdict.get(qty)
     return_set: list = await get_flist(Options, log)
     # return_set = await get_fileset(Options, log)
-    await trio.sleep(0.1)
     print('Processing Videos... (This may take some time...)')
     proc_result = await siv(return_set, tres, Options, log)
-    await trio.sleep(0.1)
     if not Options.rm:
         file_path = os.path.abspath('results.txt')
         with open(file_path, mode='w', encoding='utf-8') as writ:

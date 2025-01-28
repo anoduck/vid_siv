@@ -78,7 +78,7 @@ _In raw class form:_
     zo: bool = True  # Enable/Disable removal of zero-sum files.
     min: int = 512  # Minimum file size in kilobytes, less than is considered zero-sum.
     lev: str = choice('info', 'debug', default='info')  # Set log level to either INFO or DEBUG
-    log: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
+    log: str = os.path.abspath('./vid_sieve.log')  # Full path to log file.
     rot: bool = True  # Enable/Disable auto rotate log file when > 1MB
 ```
 
@@ -87,7 +87,7 @@ _In raw class form:_
 Using Vid_Siv would look something like so:
 
 ```commandline
-poetry run python vidsiv.py --dir /dir/path --rm
+poetry run python vid_sieve.py --dir /dir/path --rm
 ```
 * All options possess a default value.
 * If no directory is specified on the command line, the script will default to using `/home/$USER/Videos`.
