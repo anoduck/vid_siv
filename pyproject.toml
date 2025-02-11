@@ -16,6 +16,7 @@ alive-progress = "^3.2.0"
 python-magic = "^0.4.27"
 exceptiongroup = "^1.2.2"
 aioresult = "^0.9"
+pathvalidate = "^3.2.3"
 
 
 [build-system]

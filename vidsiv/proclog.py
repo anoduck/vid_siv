@@ -26,43 +26,40 @@ class SivLog(threading.Thread):
         self.start()
 
     def get_log(self) -> logging.Logger:
-        if self.log is not None:
-            return self.log
+        if self.log_file is None:
+            self.log_file = 'vidsiv.log'
+        if self.level is None:
+            self.level = 'DEBUG'
+        if not os.path.exists(self.log_file):
+            open(self.log_file, 'a').close()
+        log = logging.getLogger(__name__)
+        if log.hasHandlers():
+            log.handlers.clear()
+        log_levels = {'DEBUG': logging.DEBUG,
+                      'INFO': logging.INFO,
+                      'WARNING': logging.WARNING,
+                      'ERROR': logging.ERROR,
+                      'CRITICAL': logging.CRITICAL}
+        if self.level in log_levels.keys():
+            set_level = log_levels[self.level]
+            log.setLevel(set_level)
         else:
-            if self.log_file is None:
-                self.log_file = 'vidsiv.log'
-            if self.level is None:
-                self.level = 'DEBUG'
-            if not os.path.exists(self.log_file):
-                open(self.log_file, 'a').close()
-            log = logging.getLogger(__name__)
-            if log.hasHandlers():
-                log.handlers.clear()
-            log_levels = {'DEBUG': logging.DEBUG,
-                          'INFO': logging.INFO,
-                          'WARNING': logging.WARNING,
-                          'ERROR': logging.ERROR,
-                          'CRITICAL': logging.CRITICAL}
-            if self.level in log_levels.keys():
-                set_level = log_levels[self.level]
-                log.setLevel(set_level)
-            else:
-                warn('Invalid level. Defaulting to debug')
-                log.setLevel(logging.DEBUG)
-            handler = handlers.RotatingFileHandler(
-                filename=self.log_file,
-                mode='a', maxBytes=75 * 1024,
-                backupCount=2,
-                encoding='utf-8',
-                delay=False)
-            formatter = logging.Formatter(
-                '%(asctime)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            log.addHandler(handler)
-            log = log
-            log.info('## ========================================= ##')
-            log.info('You have now Started VidSiv')
-            log.info('## ========================================= ##')
-            log.info('Acquired Logger')
-            return log
+            warn('Invalid level. Defaulting to debug')
+            log.setLevel(logging.DEBUG)
+        handler = handlers.RotatingFileHandler(
+            filename=self.log_file,
+            mode='a', maxBytes=75 * 1024,
+            backupCount=2,
+            encoding='utf-8',
+            delay=False)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        log.addHandler(handler)
+        log = log
+        log.info('## ========================================= ##')
+        log.info('You have now Started VidSiv')
+        log.info('## ========================================= ##')
+        log.info('Acquired Logger')
+        return log
 

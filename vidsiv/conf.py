@@ -4,9 +4,34 @@
 # https://anoduck.mit-license.org
 # --------------------------------------------------------------------------------
 from dataclasses import dataclass
-import os
-from simple_parsing import ArgumentParser
+from pathlib import Path
+from typing import *
+from simple_parsing import ArgumentParser, subparsers
 from simple_parsing.helpers import choice
+from vidsiv import VidSiv, FinalizeFiles
+
+
+@dataclass
+class Siv:
+    """Siving folder recursively for files that do not meet specifications."""
+    dir: Path = Path('~/Videos')  # Path of the directory you want sived.
+    quality: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Choose minimum desired quality in width
+    duration: int = 360  # Minimum duration in secs, less than this will be flagged.
+    zero: bool = True  # Enable/Disable removal of zero-sum files.
+    valid: bool = False  # Check videos for Validity. (Exponentially slows processing time by > 8Xs)
+    min: int = 512  # Minimum file size in kilobytes, less than this amount will be flagged.
+    exclude: Path = Path('')  # Path to file containing list of files to exclude from sieving. One file per line.
+    results: Path = Path('./files_to_delete.txt')  # output file containing list of files that match rules for deletion.
+
+
+@dataclass
+class Finalize:
+    """Finalizing the siv process with deletion of files from result list."""
+    filelist: Path = Path('./files_to_delete.txt')  # File generated with siv action listing files to delete.
+
+    def execute(self):
+        .vidsiv.VidSiv.siv()
+
 
 @dataclass
 class Options:
@@ -38,19 +63,19 @@ class Options:
 
     For redundancy, here is an explanation of the options...again...for the second time...
     """
-    action: str = choice("siv", "finalize", "playlist", "help", default="help")  # Action to perform
-    dir: str = os.path.expanduser('~/Videos')  # Path of the directory you want sived.
-    quality: str = choice("480", "540", "720", "1080", "2k", "4k", default='720')  # Choose minimum desired quality in width
-    duration: int = 360  # Minimum duration in secs, less than this will be flagged.
-    zero: bool = True  # Enable/Disable removal of zero-sum files.
-    valid: bool = False  # Check videos for Validity. (Exponentially slows processing time by > 8Xs)
-    min: int = 512  # Minimum file size in kilobytes, less than this amount will be flagged.
-    exclude: str = 'exclude_files.txt'  # Path to file containing list of files to exclude from sieving. One file per line.
-    results: str = 'files_to_delete.txt'  # output file containing list of files that match rules for deletion.
+    # Actions are "siv" and "finalize". Use "(siv or finalize) --help" for more information.
+    action: Union[Siv, Finalize] = subparsers(
+        {"siv": Siv, "finalize": Finalize}
+    )
     loglevel: str = choice('info', 'debug', default='debug')  # Set log level to either INFO or DEBUG
-    logfile: str = os.path.abspath('./vidsiv.log')  # Full path to log file.
+    logfile: Path = Path('./vidsiv.log')  # Full path to log file.
+
+    def execute(self):
+        return self.action.execute()
 
 
 parser = ArgumentParser()
 parser.add_arguments(Options, dest="options")
 args = parser.parse_args()
+options: Options = args.options
+

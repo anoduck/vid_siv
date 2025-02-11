@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
-import tempfile
 import ffmpeg
 from alive_progress import alive_it
 
@@ -9,7 +8,7 @@ from alive_progress import alive_it
 class ProcessVids:
 
     def __init__(self):
-        self.res_ret = []
+        self.res_ret = ''
         self.pos = 0
 
     def zero_sum(self, item, fsize, log):
@@ -73,19 +72,21 @@ class ProcessVids:
         self.log.debug(f'Added {item} to removal file')
 
     def build_exclist(self, found_list):
-        new_list = tempfile.TemporaryFile()
-        if os.path.isfile(self.exclude_file):
+        if self.exclude_file != "":
             fpath = os.path.abspath(self.exclude_file)
-            with open(fpath, 'r') as f:
-                exclude_list = f.readlines()
-                for file in file_list:
-                    if file in exclude_list:
-                        file_list.remove(file)
-                f.close()
-            working_file = new_list.writelines(file_list)
-            return working_file
+            if os.path.isfile(fpath):
+                with open(fpath, 'r') as f:
+                    exclude_list = f.readlines()
+                    for file in found_list:
+                        if file in exclude_list:
+                            found_list.remove(file)
+                    f.close()
+                    return found_list
+            else:
+                self.log.info('Error opening excluded file.')
+                exit(1)
         else:
-            return tmpfile
+            return found_list
 
     def proc_vids(self, found_list, valid, zero, results,
                   target_resolution, exclude, min, duration, log):
@@ -96,8 +97,8 @@ class ProcessVids:
         self.min_size = min * 1024
         self.min_dur = float(duration)
         log.info('Started Video Processing.')
-        file_list = self.build_exclist(found_list)
-        bar = alive_it(file_list,
+        proc_list = self.build_exclist(found_list)
+        bar = alive_it(proc_list,
                        finalize=lambda bar: bar.text('Whoo-hoo! Processing Videos is done!'))
         for item in bar:
             processed = False
@@ -111,17 +112,21 @@ class ProcessVids:
                     processed = self.zero_sum(item, fsize, log)
                 if valid:
                     processed = self.check_valid(item, log)
-                processed = self.check_size(item, log)
+                    processed = self.check_size(item, fsize, log)
                 try:
                     ffdict = ffmpeg.probe(item)
                 except ffmpeg.Error:
-                    log.debug('Ffmpeg error: {}'.format(
+                    log.info('Ffmpeg error: {}'.format(
                         ffmpeg.Error(cmd=True, stdout=True, stderr=True)))
                     continue
-                ffstreams = ffdict.get('streams')
-                vidstream = ffstreams[0]
-                processed = self.check_resolution(item, vidstream, log)
-                processed = self.check_duration(item, vidstream, log)
-                bar.text(f'Processed: {item}')
+                try:
+                    ffstreams = ffdict.get('streams')
+                    vidstream = ffstreams[0]
+                    processed = self.check_resolution(item, vidstream, log)
+                    processed = self.check_duration(item, vidstream, log)
+                except ffmpeg.Error:
+                    log.info('Ffmpeg Error: {}'.format(ffmpeg.Error(cmd=True, stdout=True, stderr=True)))
+                    continue
                 processed = True
+                bar.text(f'Processed: {item}')
         return True

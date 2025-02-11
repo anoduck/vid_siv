@@ -22,36 +22,36 @@
 # https://anoduck.mit-license.org
 # -----------------------------------------------------------------
 import os
-import logging
-from logging import handlers
-from warnings import warn
-from conf import parser, args
 from getter import GetStuff
+from proclog import SivLog
 from vidproc import ProcessVids
 
 
-class vidsiv:
+class VidSiv:
 
-    def __init__(self):
+    def __init__(self, args):
         self.args = args.options
-        self.res_file = os.path.abspath(self.args.results)
+        self.res_file = self.args.results
         self.valid = self.args.valid
         self.rdict = {'480': 480, '540': 540, '720': 720,
                       '2k': 1920, '4k': 3840}
-        self.target_resolution = self.rdict.get(self.quality)
         self.quality = self.args.quality
+        self.target_resolution = self.rdict.get(self.quality)
         self.zero = self.args.zero
         self.min = self.args.min
         self.duration = self.args.duration
         self.exclude = self.args.exclude
+        self.logfile = self.args.logfile
+        self.loglevel = self.args.loglevel
+        self.sv = SivLog(self.logfile, self.loglevel)
+        self.log = self.sv.get_log()
 
-    def siv(self, log):
-        self.log = log
+    def siv(self):
         gstuff = GetStuff()
         found_list = gstuff.get_flist(dir=self.args.dir, log=self.log)
         print('Processing Videos... (This may take some time...)')
         vproc = ProcessVids()
-        proc_result = vproc.proc_vids(tmpfile=found_list, valid=self.valid,
+        proc_result = vproc.proc_vids(found_list=found_list, valid=self.valid,
                                       zero=self.zero, results=self.res_file,
                                       target_resolution=self.target_resolution,
                                       exclude=self.args.exclude, min=self.min,
@@ -61,74 +61,19 @@ class vidsiv:
             print('Done!', flush=False)
 
 
-class Finalize:
+class FinalizeFiles:
 
-    def __init__(self) -> None:
+    def __init__(self, args):
         self.args = args.options
-        self.res_file = os.path.abspath(self.args.results)
+        self.remfile = self.args.filelist
+        self.logfile = self.args.logfile
+        self.loglevel = self.args.loglevel
+        self.sv = SivLog(self.logfile, self.loglevel)
+        self.log = self.sv.get_log()
 
-    def remove_selection(self, log):
-        with open(self.res_file, 'r') as res:
+    def remove_selection(self):
+        with open(self.remfile, 'r') as res:
             for item in res:
-                log.info(f'Removing {item} from system')
+                self.log.info(f'Removing {item} from system')
                 os.remove(item)
 
-
-def get_log(logfile, loglevel) -> logging.Logger:
-    if logfile is None:
-        logfile = 'vidsiv.log'
-    if loglevel is None:
-        loglevel = 'DEBUG'
-    if not os.path.exists(logfile):
-        open(logfile, 'a').close()
-    log = logging.getLogger(__name__)
-    if log.hasHandlers():
-        log.handlers.clear()
-    log_levels = {'DEBUG': logging.DEBUG,
-                  'INFO': logging.INFO,
-                  'WARNING': logging.WARNING,
-                  'ERROR': logging.ERROR,
-                  'CRITICAL': logging.CRITICAL}
-    if loglevel in log_levels.keys():
-        set_level = log_levels[loglevel]
-        log.setLevel(set_level)
-    else:
-        warn('Invalid level. Defaulting to debug')
-        log.setLevel(logging.DEBUG)
-    handler = handlers.RotatingFileHandler(
-        filename=logfile,
-        mode='a', maxBytes=75 * 1024,
-        backupCount=2,
-        encoding='utf-8',
-        delay=False)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    log.addHandler(handler)
-    log = log
-    log.info('## ========================================= ##')
-    log.info('You have now Started VidSiv')
-    log.info('## ========================================= ##')
-    log.info('Acquired Logger')
-    return log
-
-
-def main():
-    action = args.options.action
-    log = get_log(args.options.logfile, args.options.loglevel)
-    log.info('VidSiv has started')
-    match action:
-        case "siv":
-            vs = vidsiv()
-            vs.siv(log)
-        case "finalize":
-            final = Finalize()
-            final.remove_selection(log)
-            exit()
-        case "help":
-            parser.print_help()
-            exit()
-
-
-if __name__ == '__main__':
-    main()
